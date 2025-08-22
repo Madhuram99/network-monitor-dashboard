@@ -39,7 +39,6 @@ def ping_host(request):
         else:
             command = ['ping', '-c', '4', host]
 
-        # FIX: Add a try...except block for FileNotFoundError
         try:
             result = subprocess.run(
                 command,
@@ -167,6 +166,7 @@ def ip_geolocation(request):
 def get_network_connections(request):
     """
     Gets a list of active network connections using psutil.
+    Now handles cases where psutil is not available or fails.
     """
     try:
         connections = psutil.net_connections(kind='inet')
@@ -188,4 +188,4 @@ def get_network_connections(request):
                 })
         return JsonResponse({'connections': conn_data})
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        return JsonResponse({'error': f"Could not retrieve connections: psutil may be restricted on this server. ({e})"}, status=501)
