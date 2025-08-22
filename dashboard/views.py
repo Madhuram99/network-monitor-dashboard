@@ -6,7 +6,7 @@ import ssl
 import subprocess
 import psutil
 import requests
-import platform  # Import the platform module
+import platform
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
@@ -25,7 +25,7 @@ def index(request):
 def ping_host(request):
     """
     Pings a host and returns the output.
-    Uses subprocess to run the system's ping command, now with OS detection.
+    Now handles cases where the ping command is not available on the server.
     """
     try:
         data = json.loads(request.body)
@@ -33,24 +33,27 @@ def ping_host(request):
         if not host:
             return JsonResponse({'error': 'Host is required'}, status=400)
 
-        # Determine the correct ping command based on the operating system
         system = platform.system().lower()
         if system == "windows":
             command = ['ping', '-n', '4', host]
         else:
             command = ['ping', '-c', '4', host]
 
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=15 # Add a timeout to prevent hanging indefinitely
-        )
-        
-        if result.returncode == 0:
-            return JsonResponse({'output': result.stdout})
-        else:
-            return JsonResponse({'error': result.stderr or "Ping failed. Host may be unreachable or invalid."}, status=400)
+        # FIX: Add a try...except block for FileNotFoundError
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            if result.returncode == 0:
+                return JsonResponse({'output': result.stdout})
+            else:
+                return JsonResponse({'error': result.stderr or "Ping failed. Host may be unreachable or invalid."}, status=400)
+        except FileNotFoundError:
+            return JsonResponse({'error': 'Ping command not found on this server. It may be disabled by the hosting provider.'}, status=501) # 501 Not Implemented
+
     except subprocess.TimeoutExpired:
         return JsonResponse({'error': f'Ping timed out for host: {host}'}, status=408)
     except Exception as e:
@@ -81,8 +84,6 @@ def dns_lookup(request):
 def port_scan(request):
     """
     Scans a range of ports on a target IP address.
-    This is a simplified, slow, and blocking scanner.
-    A real-world app should use Celery and a more robust scanning library.
     """
     try:
         data = json.loads(request.body)
@@ -97,7 +98,7 @@ def port_scan(request):
 
         for port in ports_to_scan:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                socket.setdefaulttimeout(0.5) # Timeout for each connection attempt
+                socket.setdefaulttimeout(0.5)
                 result = s.connect_ex((target, port))
                 if result == 0:
                     open_ports.append(port)
@@ -123,7 +124,6 @@ def ssl_cert_check(request):
             with context.wrap_socket(sock, server_hostname=domain) as ssock:
                 cert = ssock.getpeercert()
                 
-                # Format the certificate data for easy display
                 cert_info = {
                     'subject': dict(x[0] for x in cert.get('subject', [])),
                     'issuer': dict(x[0] for x in cert.get('issuer', [])),
@@ -149,9 +149,8 @@ def ip_geolocation(request):
         if not ip_address:
             return JsonResponse({'error': 'IP address is required'}, status=400)
 
-        # Using the ip-api.com service
         response = requests.get(f'http://ip-api.com/json/{ip_address}')
-        response.raise_for_status() # Raise an exception for bad status codes
+        response.raise_for_status()
         geo_data = response.json()
         
         if geo_data.get('status') == 'fail':
@@ -173,7 +172,6 @@ def get_network_connections(request):
         connections = psutil.net_connections(kind='inet')
         conn_data = []
         for conn in connections:
-            # We only care about established connections with a remote address
             if conn.status == 'ESTABLISHED' and conn.raddr:
                 try:
                     proc = psutil.Process(conn.pid) if conn.pid else None
